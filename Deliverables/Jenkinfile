@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+    tools {
+        nodejs "node16"
+        jdk "jdk17"
+    }
+    environment {
+        SCANNER_HOME=tool "mysonar"
+    }
+    stages {
+        stage("workspace") {
+            steps {
+                cleanWs()
+            }
+        }
+        stage("code") {
+            steps {
+                git branch: 'main', url: 'https://github.com/saiflm17/project-7.git'
+            }
+        }
+        stage("cqa tool") {
+            steps {
+                withSonarQubeEnv('mysonar') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=project \
+                    -Dsonar.projectKey=project '''
+                }
+            }
+        }
+        stage("quality gates") {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'mysonar'
+                }
+            }
+        }
+        stage("build the code") {
+            steps {
+                sh "npm install"
+            }
+        }
+        stage("owasp") {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'dp-check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage("build the dockerfile & rename") {
+            steps {
+                sh "docker build -t image1 Tetris-V2/"
+                sh "docker tag image1 saikumar1817/project-7:v2"
+            }
+        }
+        stage("trivy fs scan") {
+            steps {
+                sh "trivy fs . > trivyfs.txt"
+            }
+        }
+        stage("scan the image") {
+            steps {
+                sh "trivy image saikumar1817/project-7:v2"
+            }
+        }
+        stage("push the image to dockerhub") {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh "docker push saikumar1817/project-7:v2"
+                    }    
+                }
+            }
+        }
+    }
+}
